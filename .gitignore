@@ -6,3 +6,6 @@ build/
 npm-debug.log
 .vscode/
 *.log
+
+# Local Netlify folder
+.netlify
