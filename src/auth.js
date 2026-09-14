@@ -31,6 +31,9 @@ export async function register(name, email, password) {
       options: { data: { name } },
     });
     if (error) return { ok: false, error: error.message };
+    if (!data.session) {
+      return { ok: false, needsConfirmation: true, email };
+    }
     const user = data.user;
     const session = saveSession({ ...user, name });
     return { ok: true, user: session };
@@ -74,4 +77,16 @@ export async function logout() {
 export function getSession() {
   try { return JSON.parse(localStorage.getItem(SESSION_KEY)); }
   catch { return null; }
+}
+
+export async function resendConfirmation(email) {
+  if (!isSupabaseConfigured || !supabase) {
+    return { ok: false, error: 'Supabase is not configured.' };
+  }
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }

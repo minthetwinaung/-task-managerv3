@@ -149,9 +149,22 @@ export default function App({ user, onLogout }) {
 
   const LOCAL_TASK_KEY = user?.id ? `tm_tasks_${user.id}` : null;
 
-  const sanitizeTask = task => ({
+  const sanitizeTask = task => {
+    const { id, startDate, dueDate, completedDate, ...rest } = task;
+    return {
+      ...rest,
+      startdate: startDate || null,
+      duedate: dueDate || null,
+      completeddate: completedDate || null,
+      attachments: (task.attachments || []).map(({ name, size, type, url }) => ({ name, size, type, url })),
+    };
+  };
+
+  const normalizeTask = task => ({
     ...task,
-    attachments: (task.attachments || []).map(({ name, size, type, url }) => ({ name, size, type, url })),
+    startDate: task.startDate ?? task.startdate ?? null,
+    dueDate: task.dueDate ?? task.duedate ?? null,
+    completedDate: task.completedDate ?? task.completeddate ?? null,
   });
 
   const loadLocalTasks = useCallback(() => {
@@ -185,7 +198,7 @@ export default function App({ user, onLogout }) {
       console.error('Failed to load tasks', error);
       return;
     }
-    _setTasks(data || []);
+    _setTasks((data || []).map(normalizeTask));
   }, [user?.id, loadLocalTasks]);
 
   useEffect(() => {
@@ -209,7 +222,7 @@ export default function App({ user, onLogout }) {
           .eq('user_id', user.id);
         if (error) {
           console.error('Update failed', error);
-          return;
+          return { ok: false, error: error.message };
         }
       } else {
         const { error } = await supabase
@@ -217,12 +230,13 @@ export default function App({ user, onLogout }) {
           .insert([{ ...payload, user_id: user.id }]);
         if (error) {
           console.error('Insert failed', error);
-          return;
+          return { ok: false, error: error.message };
         }
       }
       await fetchTasks();
     }
     setModal(null);
+    return { ok: true };
   };
 
   const deleteTask = async id => {
@@ -291,6 +305,13 @@ export default function App({ user, onLogout }) {
   const clearFiltered = async () => {
     const ids = filtered.map(t=>t.id);
     if (ids.length === 0) {
+      setSC(false);
+      return;
+    }
+    if (!isSupabaseConfigured || !supabase) {
+      const nextTasks = tasks.filter(t => !ids.includes(t.id));
+      _setTasks(nextTasks);
+      persistLocalTasks(nextTasks);
       setSC(false);
       return;
     }

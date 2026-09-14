@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LogIn, UserPlus, Eye, EyeOff, Code2 } from 'lucide-react';
-import { login, register } from './auth';
+import { login, register, resendConfirmation } from './auth';
 import { isSupabaseConfigured } from './supabaseClient';
 
 export default function LoginPage({ onAuth }) {
@@ -11,16 +11,32 @@ export default function LoginPage({ onAuth }) {
   const [showP, setShowP]   = useState(false);
   const [error, setError]   = useState('');
   const [loading, setLoading] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState('');
+  const [confirmationSent, setConfirmationSent] = useState(false);
 
   const submit = async e => {
     e.preventDefault();
     setError('');
+    setConfirmationEmail('');
+    setConfirmationSent(false);
     setLoading(true);
     const res = mode === 'login'
       ? await login(email, pass)
       : await register(name, email, pass);
     setLoading(false);
     if (res.ok) onAuth(res.user);
+    else if (res.needsConfirmation) {
+      setConfirmationEmail(res.email);
+      setError('Please confirm your email before signing in. Check your inbox for the confirmation link.');
+    } else setError(res.error);
+  };
+
+  const resendEmail = async () => {
+    setLoading(true);
+    setError('');
+    const res = await resendConfirmation(confirmationEmail || email);
+    setLoading(false);
+    if (res.ok) setConfirmationSent(true);
     else setError(res.error);
   };
 
@@ -124,6 +140,12 @@ export default function LoginPage({ onAuth }) {
           <div style={{ marginTop:20, padding:'10px 12px', background:'rgba(79,143,255,0.06)', border:'1px solid rgba(79,143,255,0.15)', borderRadius:8, fontSize:11, color:'#4f8fff', textAlign:'center' }}>
             💡 Register with any email & password to get started
           </div>
+          {confirmationEmail && (
+            <button type="button" onClick={resendEmail} disabled={loading}
+              style={{ padding:'9px 12px', background:'rgba(79,143,255,0.08)', border:'1px solid rgba(79,143,255,0.25)', borderRadius:8, color:'#4f8fff', fontSize:12, cursor:loading?'not-allowed':'pointer' }}>
+              {confirmationSent ? 'Confirmation email sent' : 'Resend confirmation email'}
+            </button>
+          )}
         </div>
       </div>
     </div>

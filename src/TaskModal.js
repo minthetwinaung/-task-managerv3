@@ -17,6 +17,7 @@ export default function TaskModal({ task, onSave, onClose, nextNo }) {
   const empty = { no: '', name: '', description: '', category: 'ETL Pipeline', priority: 'Medium', status: 'Backlog', assignee: '', startDate: '', dueDate: '', completedDate: '', remark: '', attachments: [] };
   const [form, setForm]     = useState(task ? { ...task } : { ...empty, no: nextNo });
   const [dragOver, setDO]   = useState(false);
+  const [saveError, setSaveError] = useState('');
   const fileRef             = useRef();
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -32,7 +33,10 @@ export default function TaskModal({ task, onSave, onClose, nextNo }) {
   const handleSubmit = e => {
     e.preventDefault();
     if (!form.name.trim()) return;
-    onSave(form);
+    setSaveError('');
+    Promise.resolve(onSave(form)).then(result => {
+      if (result?.ok === false) setSaveError(result.error || 'Unable to save task.');
+    });
   };
 
   const g2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 };
@@ -154,6 +158,7 @@ export default function TaskModal({ task, onSave, onClose, nextNo }) {
 
         {/* Footer */}
         <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--surface)' }}>
+          {saveError && <div style={{ flex:1, alignSelf:'center', color:'var(--red)', fontSize:11 }}>{saveError}</div>}
           <button type="button" onClick={onClose} style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--surface2)', color: 'var(--text2)', fontSize: 13, border: '1px solid var(--border)', cursor: 'pointer' }}>Cancel</button>
           <button type="submit" style={{ padding: '8px 24px', borderRadius: 8, background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer' }}>
             {task ? 'Save changes' : 'Create task'}

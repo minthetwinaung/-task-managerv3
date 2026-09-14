@@ -26,6 +26,8 @@ REACT_APP_SUPABASE_ANON_KEY=<your-anon-public-api-key>
 
 4. In production builds ensure the environment variables are provided at build time (Netlify/Vercel provide ways to set them).
 
+For a step-by-step production troubleshooting process, see [SUPABASE_DEBUGGING_GUIDE.md](SUPABASE_DEBUGGING_GUIDE.md).
+
 Notes:
 - The app requires `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` at build time for production; the app will throw if they are missing.
 - The `tasks` table uses UUID primary keys and `user_id` matches Supabase auth user IDs.
