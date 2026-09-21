@@ -1,5 +1,19 @@
 import * as XLSX from 'xlsx';
 
+export async function downloadFile(url, name) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Unable to download ${name}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function exportToExcel(tasks) {
   const rows = tasks.map(t => ({
     'No': t.no, 'Task Name': t.name, 'Description': t.description,

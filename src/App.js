@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import TaskModal from './TaskModal';
 import { PRIORITIES, STATUSES, CATEGORIES, PRIORITY_COLOR, STATUS_COLOR, CATEGORY_COLOR, CATEGORY_ICON } from './data';
-import { exportToExcel, formatDate, isOverdue, nextNo, MONTHS, getYears, filterByPeriod } from './utils';
+import { downloadFile, exportToExcel, formatDate, isOverdue, nextNo, MONTHS, getYears, filterByPeriod } from './utils';
 import { logout } from './auth';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
@@ -40,7 +40,7 @@ function ExpandRow({ task }) {
               <Paperclip size={13} color="var(--text3)" style={{ marginTop:3, flexShrink:0 }}/>
               <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                 {task.attachments.map((a,i) => (
-                  <a key={i} href={a.url} download={a.name} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px', borderRadius:6, background:'var(--surface3)', color:'var(--accent)', textDecoration:'none', border:'1px solid var(--border)', fontFamily:'var(--mono)' }}>
+                  <a key={i} href={a.url} download={a.name} onClick={e => { e.preventDefault(); downloadFile(a.url, a.name); }} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px', borderRadius:6, background:'var(--surface3)', color:'var(--accent)', textDecoration:'none', border:'1px solid var(--border)', fontFamily:'var(--mono)' }}>
                     <Download size={11}/>{a.name}<span style={{ color:'var(--text3)', fontSize:10 }}>({(a.size/1024).toFixed(1)}KB)</span>
                   </a>
                 ))}
@@ -95,7 +95,7 @@ function TaskCard({ task, onEdit, onDelete }) {
               {(task.attachments||[]).length>0 && (
                 <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                   {task.attachments.map((a,i)=>(
-                    <a key={i} href={a.url} download={a.name} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px', borderRadius:5, background:'var(--surface3)', color:'var(--accent)', textDecoration:'none', border:'1px solid var(--border)', fontFamily:'var(--mono)' }}>
+                    <a key={i} href={a.url} download={a.name} onClick={e => { e.preventDefault(); downloadFile(a.url, a.name); }} style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:11, padding:'4px 10px', borderRadius:5, background:'var(--surface3)', color:'var(--accent)', textDecoration:'none', border:'1px solid var(--border)', fontFamily:'var(--mono)' }}>
                       <Download size={11}/>{a.name}
                     </a>
                   ))}
@@ -160,6 +160,21 @@ export default function App({ user, onLogout }) {
     };
   };
 
+  const uploadAttachments = async attachments => {
+    if (!supabase || !user?.id) return attachments;
+    return Promise.all(attachments.map(async attachment => {
+      if (!attachment.file) return attachment;
+      const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+      const { error } = await supabase.storage
+        .from('task-attachments')
+        .upload(path, attachment.file, { contentType: attachment.type || 'application/octet-stream' });
+      if (error) throw error;
+      const { data } = supabase.storage.from('task-attachments').getPublicUrl(path);
+      return { name: attachment.name, size: attachment.size, type: attachment.type, url: data.publicUrl, path };
+    }));
+  };
+
   const normalizeTask = task => ({
     ...task,
     startDate: task.startDate ?? task.startdate ?? null,
@@ -206,7 +221,14 @@ export default function App({ user, onLogout }) {
   }, [fetchTasks]);
 
   const saveTask = async form => {
-    const payload = sanitizeTask(form);
+    let attachments;
+    try {
+      attachments = await uploadAttachments(form.attachments || []);
+    } catch (error) {
+      console.error('Attachment upload failed', error);
+      return { ok: false, error: error.message || 'Unable to upload attachment.' };
+    }
+    const payload = sanitizeTask({ ...form, attachments });
     if (!isSupabaseConfigured || !supabase) {
       const nextTasks = form.id
         ? tasks.map(x => x.id === form.id ? { ...form } : x)

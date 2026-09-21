@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Paperclip, Trash2, Upload, Download } from 'lucide-react';
+import { downloadFile } from './utils';
 import { PRIORITIES, STATUSES, CATEGORIES, CATEGORY_COLOR, CATEGORY_ICON } from './data';
 
 function Field({ label, required, children }) {
@@ -142,7 +143,7 @@ export default function TaskModal({ task, onSave, onClose, nextNo }) {
                       <Paperclip size={13} color="var(--text3)" style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
                       <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{(a.size / 1024).toFixed(1)} KB</span>
-                      <a href={a.url} download={a.name} onClick={e => e.stopPropagation()} style={{ display: 'flex', color: 'var(--accent)', padding: 3 }}>
+                      <a href={a.url} download={a.name} onClick={e => { e.preventDefault(); e.stopPropagation(); downloadFile(a.url, a.name); }} style={{ display: 'flex', color: 'var(--accent)', padding: 3 }}>
                         <Download size={13} />
                       </a>
                       <button type="button" onClick={() => setForm(f => ({ ...f, attachments: f.attachments.filter((_, j) => j !== i) }))} style={{ background: 'transparent', color: 'var(--text3)', display: 'flex', padding: 3, border: 'none', cursor: 'pointer', borderRadius: 4 }}>
