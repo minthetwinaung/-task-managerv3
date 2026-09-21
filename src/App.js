@@ -160,18 +160,27 @@ export default function App({ user, onLogout }) {
     };
   };
 
+  const fileToDataUrl = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Unable to read attachment.'));
+    reader.readAsDataURL(file);
+  });
+
   const uploadAttachments = async attachments => {
     if (!supabase || !user?.id) return attachments;
     return Promise.all(attachments.map(async attachment => {
       if (!attachment.file) return attachment;
       const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
-      const { error } = await supabase.storage
-        .from('task-attachments')
-        .upload(path, attachment.file, { contentType: attachment.type || 'application/octet-stream' });
-      if (error) throw error;
-      const { data } = supabase.storage.from('task-attachments').getPublicUrl(path);
-      return { name: attachment.name, size: attachment.size, type: attachment.type, url: data.publicUrl, path };
+      const storage = supabase.storage.from('task-attachments');
+      const { error } = await storage.upload(path, attachment.file, { contentType: attachment.type || 'application/octet-stream' });
+      if (!error) {
+        const { data } = storage.getPublicUrl(path);
+        return { name: attachment.name, size: attachment.size, type: attachment.type, url: data.publicUrl, path };
+      }
+      if (!error.message?.toLowerCase().includes('bucket not found')) throw error;
+      return { name: attachment.name, size: attachment.size, type: attachment.type, url: await fileToDataUrl(attachment.file) };
     }));
   };
 
