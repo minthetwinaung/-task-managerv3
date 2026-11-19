@@ -23,14 +23,38 @@ function saveSession(user) {
   return session;
 }
 
+const NETWORK_ERROR_MESSAGE =
+  'Cannot reach the Supabase server. The Supabase project may be paused or deleted, ' +
+  'or REACT_APP_SUPABASE_URL is wrong. Check the project in the Supabase dashboard.';
+
+function isNetworkError(error) {
+  const msg = (error?.message || '').toLowerCase();
+  return error?.name === 'AuthRetryableFetchError' ||
+    error?.name === 'TypeError' ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('load failed');
+}
+
+export function friendlyError(error) {
+  if (!error) return 'Unknown error';
+  if (isNetworkError(error)) return NETWORK_ERROR_MESSAGE;
+  return error.message || String(error);
+}
+
 export async function register(name, email, password) {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-    if (error) return { ok: false, error: error.message };
+    let data, error;
+    try {
+      ({ data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name } },
+      }));
+    } catch (e) {
+      return { ok: false, error: friendlyError(e) };
+    }
+    if (error) return { ok: false, error: friendlyError(error) };
     if (!data.session) {
       return { ok: false, needsConfirmation: true, email };
     }
@@ -51,11 +75,16 @@ export async function register(name, email, password) {
 
 export async function login(email, password) {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) return { ok: false, error: error.message };
+    let data, error;
+    try {
+      ({ data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      }));
+    } catch (e) {
+      return { ok: false, error: friendlyError(e) };
+    }
+    if (error) return { ok: false, error: friendlyError(error) };
     const user = data.user;
     if (!user) return { ok: false, error: 'Login failed' };
     const session = saveSession(user);
@@ -70,7 +99,11 @@ export async function login(email, password) {
 }
 
 export async function logout() {
-  if (supabase) await supabase.auth.signOut();
+  try {
+    if (supabase) await supabase.auth.signOut();
+  } catch (e) {
+    console.warn('Supabase sign-out failed; clearing local session anyway.', e);
+  }
   localStorage.removeItem(SESSION_KEY);
 }
 
@@ -79,14 +112,42 @@ export function getSession() {
   catch { return null; }
 }
 
+/**
+ * When Supabase is configured, the cached app session is only valid if
+ * Supabase still holds a matching auth session. Otherwise every query would
+ * run unauthenticated and RLS would silently return no rows.
+ */
+export async function validateSession() {
+  const cached = getSession();
+  if (!cached) return null;
+  if (!isSupabaseConfigured || !supabase) return cached;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const authUser = data?.session?.user;
+    if (!authUser || authUser.id !== cached.id) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return cached;
+  } catch {
+    // Offline / server unreachable: keep the cached user so the UI can show errors.
+    return cached;
+  }
+}
+
 export async function resendConfirmation(email) {
   if (!isSupabaseConfigured || !supabase) {
     return { ok: false, error: 'Supabase is not configured.' };
   }
-  const { error } = await supabase.auth.resend({
-    type: 'signup',
-    email,
-  });
-  if (error) return { ok: false, error: error.message };
+  let error;
+  try {
+    ({ error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+    }));
+  } catch (e) {
+    return { ok: false, error: friendlyError(e) };
+  }
+  if (error) return { ok: false, error: friendlyError(error) };
   return { ok: true };
 }

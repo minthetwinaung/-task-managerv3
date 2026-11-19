@@ -8,7 +8,7 @@ import {
 import TaskModal from './TaskModal';
 import { PRIORITIES, STATUSES, CATEGORIES, PRIORITY_COLOR, STATUS_COLOR, CATEGORY_COLOR, CATEGORY_ICON } from './data';
 import { downloadFile, exportToExcel, formatDate, isOverdue, nextNo, MONTHS, getYears, filterByPeriod } from './utils';
-import { logout } from './auth';
+import { logout, friendlyError } from './auth';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 /* ─────────────────────────────────────────────────────────────────────── */
@@ -146,6 +146,7 @@ export default function App({ user, onLogout }) {
   const [showClear, setSC]    = useState(false);
   const [filterYear, setFY]   = useState('');
   const [filterMonth, setFM]  = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const LOCAL_TASK_KEY = user?.id ? `tm_tasks_${user.id}` : null;
 
@@ -168,7 +169,13 @@ export default function App({ user, onLogout }) {
   });
 
   const uploadAttachments = async attachments => {
-    if (!supabase || !user?.id) return attachments;
+    if (!supabase || !user?.id) {
+      // Local mode: blob: URLs die on reload, so persist files as data URLs.
+      return Promise.all(attachments.map(async attachment => {
+        if (!attachment.file) return attachment;
+        return { name: attachment.name, size: attachment.size, type: attachment.type, url: await fileToDataUrl(attachment.file) };
+      }));
+    }
     return Promise.all(attachments.map(async attachment => {
       if (!attachment.file) return attachment;
       const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -212,16 +219,22 @@ export default function App({ user, onLogout }) {
       _setTasks(loadLocalTasks());
       return;
     }
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('id', { ascending: true });
+    let data, error;
+    try {
+      ({ data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', user.id));
+    } catch (e) {
+      error = e;
+    }
 
     if (error) {
       console.error('Failed to load tasks', error);
+      setErrorMsg(`Failed to load tasks: ${friendlyError(error)}`);
       return;
     }
+    setErrorMsg('');
     _setTasks((data || []).map(normalizeTask));
   }, [user?.id, loadLocalTasks]);
 
@@ -235,34 +248,38 @@ export default function App({ user, onLogout }) {
       attachments = await uploadAttachments(form.attachments || []);
     } catch (error) {
       console.error('Attachment upload failed', error);
-      return { ok: false, error: error.message || 'Unable to upload attachment.' };
+      return { ok: false, error: friendlyError(error) || 'Unable to upload attachment.' };
     }
     const payload = sanitizeTask({ ...form, attachments });
     if (!isSupabaseConfigured || !supabase) {
+      const localTask = { ...form, attachments };
       const nextTasks = form.id
-        ? tasks.map(x => x.id === form.id ? { ...form } : x)
-        : [...tasks, { ...form, id: Date.now().toString() }];
+        ? tasks.map(x => x.id === form.id ? localTask : x)
+        : [...tasks, { ...localTask, id: Date.now().toString() }];
       _setTasks(nextTasks);
-      persistLocalTasks(nextTasks);
+      try {
+        persistLocalTasks(nextTasks);
+      } catch (e) {
+        return { ok: false, error: 'Browser storage is full. Remove some attachments and try again.' };
+      }
     } else {
-      if (form.id) {
-        const { error } = await supabase
-          .from('tasks')
-          .update(payload)
-          .eq('id', form.id)
-          .eq('user_id', user.id);
-        if (error) {
-          console.error('Update failed', error);
-          return { ok: false, error: error.message };
-        }
-      } else {
-        const { error } = await supabase
-          .from('tasks')
-          .insert([{ ...payload, user_id: user.id }]);
-        if (error) {
-          console.error('Insert failed', error);
-          return { ok: false, error: error.message };
-        }
+      let error;
+      try {
+        ({ error } = form.id
+          ? await supabase
+              .from('tasks')
+              .update(payload)
+              .eq('id', form.id)
+              .eq('user_id', user.id)
+          : await supabase
+              .from('tasks')
+              .insert([{ ...payload, user_id: user.id }]));
+      } catch (e) {
+        error = e;
+      }
+      if (error) {
+        console.error(form.id ? 'Update failed' : 'Insert failed', error);
+        return { ok: false, error: friendlyError(error) };
       }
       await fetchTasks();
     }
@@ -278,16 +295,22 @@ export default function App({ user, onLogout }) {
       setDI(null);
       return;
     }
-    const { error } = await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
-    if (error) {
-      console.error('Delete failed', error);
-      return;
+    let error;
+    try {
+      ({ error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id));
+    } catch (e) {
+      error = e;
     }
     setDI(null);
+    if (error) {
+      console.error('Delete failed', error);
+      setErrorMsg(`Delete failed: ${friendlyError(error)}`);
+      return;
+    }
     await fetchTasks();
   };
 
@@ -346,16 +369,22 @@ export default function App({ user, onLogout }) {
       setSC(false);
       return;
     }
-    const { error } = await supabase
-      .from('tasks')
-      .delete()
-      .in('id', ids)
-      .eq('user_id', user.id);
-    if (error) {
-      console.error('Clear filtered tasks failed', error);
-      return;
+    let error;
+    try {
+      ({ error } = await supabase
+        .from('tasks')
+        .delete()
+        .in('id', ids)
+        .eq('user_id', user.id));
+    } catch (e) {
+      error = e;
     }
     setSC(false);
+    if (error) {
+      console.error('Clear filtered tasks failed', error);
+      setErrorMsg(`Clear failed: ${friendlyError(error)}`);
+      return;
+    }
     await fetchTasks();
   };
 
@@ -402,6 +431,14 @@ export default function App({ user, onLogout }) {
       </div>
 
       <div style={{ maxWidth:1500, margin:'0 auto', padding:'18px 22px' }}>
+
+        {errorMsg && (
+          <div role="alert" style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', marginBottom:14, background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.25)', borderRadius:10, fontSize:12, color:'#f87171' }}>
+            <AlertCircle size={14} style={{ flexShrink:0 }}/>
+            <span style={{ flex:1 }}>{errorMsg}</span>
+            <button onClick={()=>setErrorMsg('')} style={{ background:'transparent', border:'none', color:'#f87171', display:'flex', cursor:'pointer', padding:2 }}><X size={13}/></button>
+          </div>
+        )}
 
         {/* ── stat cards ── */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
